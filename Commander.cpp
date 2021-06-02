@@ -81,7 +81,7 @@ bool Commander::read(uint8_t *buff, uint8_t len){
 // See README.md for expected message format
 bool Commander::process_input(){
 
-	uint8_t msg_length =  strlen(buffer);
+	msg_length = strlen(buffer);
 
 	if(msg_length < 5){
 		// Message was too short
@@ -110,8 +110,8 @@ bool Commander::process_input(){
 
 	// Save message ready for retrieval
 	memset(msg, 0, sizeof msg);	
-	msg_length = msg_length-4;	// Strip header from message
-	strncpy(msg, &buffer[4], msg_length-4);
+	msg_length = msg_length-8;	// Strip header and footer from message
+	strncpy(msg, &buffer[4], msg_length);
 	cleanup();
 
 	return true;
