@@ -106,7 +106,7 @@ bool Commander::process_input(){
 	}
 
 	// Send an acknowledgement
-	// send(&buffer[msg_length-3], 4, true);
+	send(&buffer[msg_length-3], 4, true);
 
 	// Save message ready for retrieval
 	memset(msg, 0, sizeof msg);	
