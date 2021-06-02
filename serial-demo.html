@@ -1,0 +1,89 @@
+<!doctype html>
+<html>
+<head>
+	<meta charset="utf-8">
+	<title>Serial Demo</title>
+	<style>
+		body{font-family:sans-serif; font-size:16px;}
+		a, input{display:inline-block; font-size:16px; padding:4px 8px; background:black; color:white; text-decoration: none;}
+		a:hover{background:blue;}
+		input{color:black; background:white; border: 1px solid black; border-radius:0;}
+	</style>
+</head>
+
+<body>
+	<h1>Serial demo</h1>
+	<p>Requirements:</p>
+	<ul>
+		<li>Chrome or Edge</li>
+		<li>#enable-experimental-web-platform-features turned on</li>
+	</ul>
+	<p>Please open Developer Tools console to see output messages.</p>
+	<input type="text" id="input_send" value="RRl.0c">
+	<a id="connect" href="#connect">Connect</a>
+	<a id="send" href="#send">Send</a>
+
+	<script>
+	class Serial{
+
+		// Constants for communication with helmet
+		port;
+		outputDone;
+		outputStream;
+
+		// Constructor requires only a single callback for handling incoming messages
+		constructor(){
+			if(! ('serial' in navigator)){
+				alert("Web Serial API is not supported on this device, make sure you're running Chrome or Edge and have enabled the #enable-experimental-web-platform-features flag in chrome://flags or edge://flags");
+			}
+		}
+
+		// Serial connect function
+		async connect(){
+			try{
+				// Request port from user
+				this.port = await navigator.serial.requestPort();    
+				
+				// Open it!
+				await this.port.open({ baudRate: 115200 });          
+			
+				// Stream for outgoing data		
+				const encoder = new TextEncoderStream();
+				this.outputDone = encoder.readable.pipeTo(this.port.writable);
+				this.outputStream = encoder.writable;
+			}catch(e){
+				console.log(e);
+			}
+		} 
+
+		// Write function to send lines to stream
+		writeToStream(line){
+			if(this.outputDone){
+				const writer = this.outputStream.getWriter();
+				writer.write(line + '\r\n');
+				writer.releaseLock();
+				console.log(`Sent: ${line}`);
+			}
+		}
+	}
+
+	// ///////////////////////////////////////////////////////////////////
+	
+	// Create new Serial object
+	const serial = new Serial();
+
+	document.addEventListener('DOMContentLoaded', () => {
+
+		// Attach handlers for connect and send buttons
+		document.getElementById("connect").addEventListener("click", (e) => {
+			e.preventDefault();
+			serial.connect();
+		});
+		document.getElementById("send").addEventListener("click", (e) => {
+			e.preventDefault();
+			serial.writeToStream(document.getElementById("input_send").value);
+		});
+	});
+	</script>
+</body>
+</html>
