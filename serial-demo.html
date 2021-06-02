@@ -17,6 +17,7 @@
 	<ul>
 		<li>Chrome or Edge</li>
 		<li>#enable-experimental-web-platform-features turned on</li>
+		<li>Secure URL (https://)</li>
 	</ul>
 	<p>Please open Developer Tools console to see output messages.</p>
 	<input type="text" id="input_send" value="RRl.0c">
@@ -28,6 +29,8 @@
 
 		// Constants for communication with helmet
 		port;
+		reader;
+		inputDone;
 		outputDone;
 		outputStream;
 
@@ -45,7 +48,14 @@
 				this.port = await navigator.serial.requestPort();    
 				
 				// Open it!
-				await this.port.open({ baudRate: 115200 });          
+				await this.port.open({ baudRate: 115200 });     
+
+				// Stream reader for incoming data
+				this.reader = this.port.readable
+					.pipeThrough(new TextDecoderStream())
+					.pipeThrough(new TransformStream(new LineBreakTransformer()))
+					.getReader();
+				this.readLoop();     
 			
 				// Stream for outgoing data		
 				const encoder = new TextEncoderStream();
@@ -55,6 +65,27 @@
 				console.log(e);
 			}
 		} 
+
+		// Read loop for incoming data
+		async readLoop(){
+			try{
+				while (true){
+					const { value, done } = await this.reader.read();
+					if(value){
+						console.log(`Received: ${value}`);
+					}
+					if(done){
+						this.reader.releaseLock();
+						break;
+					}
+				}
+			}catch(e){
+				console.log(e);
+				return false;
+			}finally {
+				this.reader.releaseLock();
+			}
+		}
 
 		// Write function to send lines to stream
 		writeToStream(line){
@@ -66,6 +97,25 @@
 			}
 		}
 	}
+
+	// Quick helper class to transform incoming content by splitting based on line breaks
+	class LineBreakTransformer {
+		constructor() {
+		this.container = '';
+		}
+	
+		transform(chunk, controller) {
+		this.container += chunk;
+		const lines = this.container.split('\r\n');
+		this.container = lines.pop();
+		lines.forEach(line => controller.enqueue(line));
+		}
+	
+		flush(controller) {
+		controller.enqueue(this.container);
+		}
+	}
+
 
 	// ///////////////////////////////////////////////////////////////////
 	
