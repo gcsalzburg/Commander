@@ -45,7 +45,7 @@ Ack: RRs>35w
 ### Power on
 
 ```javascript
-RRl.1
+RRl.1.xxx
 ```
 
 ### Power off
@@ -53,7 +53,7 @@ RRl.1
 (may not be sent)
 
 ```javascript
-RRl.0
+RRl.0.xxx
 ```
 
 ### Keep-alive pings
@@ -61,5 +61,5 @@ RRl.0
 These are sent every 5 seconds (by default). They are not acknowledged.
 
 ```javascript
-RRl.9
+RRl.9.xxx
 ```
