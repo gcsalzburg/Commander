@@ -68,29 +68,6 @@ bool Commander::available(){
 }
 
 //
-// Reads in one character at a time, e.g. from a Serial reader
-// Will return true if we have a new message to read
-bool Commander::read(char c){
-	
-	switch (c){
-		case 0:	// Ignore NUL chars
-			break;
-		case '\r': // Carriage return move to beginning of next line
-		case '\n': // Line feed move one line forward
-			return process_input();
-			break;
-		default:
-			buffer[buffer_i] = c;
-			buffer_i++;
-			if(buffer_i > strlen(buffer)){
-				// Quit and process if we get too much input
-				return process_input();
-			}
-	}
-	return false;
-}
-
-//
 // Reads in a whole buffer length at a time, e.g. from LoRa radio
 // Will return true if we have a new message to read
 bool Commander::read(uint8_t *buff, uint8_t len){
@@ -101,64 +78,91 @@ bool Commander::read(uint8_t *buff, uint8_t len){
 
 //
 // Strip out message into parts for processing
-// Expected message format 
-// RRx.########
-// |2 character network ID
-//   |1 character board ID
-//    |Divider
-//     |Message contents
+// See README.md for expected message format
 bool Commander::process_input(){
 
-	if(strlen(buffer) < 5){
-		//No actual message provided
+	uint8_t msg_length =  strlen(buffer);
+
+	if(msg_length < 5){
+		// Message was too short
+		// TODO change this arbitrary length?
 		cleanup();
 		return false;
 	}
 	if((buffer[0] != network_id[0]) || (buffer[1] != network_id[1])){
-		// First chars do not match
+		// Network ID is incorrect
 		cleanup();
 		return false;
 	}
 	if(buffer[2] != board_id[0]){
-		// Not a packet for this board!
+		// Board ID not for us!
 		cleanup();
 		return false;
 	}
 	if(buffer[3] != '.'){
-		// No point separator
+		// Separator is not a . (maybe its just an ack message)
 		cleanup();
 		return false;
 	}
 
+	// Send an acknowledgement
+	// send(&buffer[msg_length-3], 4, true);
+
 	// Save message ready for retrieval
 	memset(msg, 0, sizeof msg);	
-	msg_length = strlen(buffer)-4;			
-	strncpy(msg, &buffer[4], msg_length);
-
+	msg_length = msg_length-4;	// Strip header from message
+	strncpy(msg, &buffer[4], msg_length-4);
 	cleanup();
+
 	return true;
 }
 
-void Commander::send(char *msg, uint8_t len){
-	send(msg, len, board_id);
+void Commander::send(char *msg, uint8_t len, bool is_ack){
+	send(msg, len, board_id, is_ack);
 }
 
-void Commander::send(char *msg, uint8_t len, char *b_id){
+void Commander::send(char *msg, uint8_t len, char *b_id, bool is_ack){
 
-	char buffer[buffer_size+1];
+	char send_buffer[buffer_size+1];
+	memset(send_buffer, 0, sizeof send_buffer);
 
 	// Assemble packet in expected format
-	// ##x.###########
-	strncpy(buffer, network_id, 2); 
-	strncpy(&buffer[2], b_id, 1); 
-	buffer[3] = '.';
-	strncpy(&buffer[4], msg, len); 	
+	// ##x.###########.###
 
-	// Send packet!
-	rf95.send((uint8_t *)buffer, len+4);
+	// Add network ID and device ID
+	strncpy(send_buffer, network_id, 2);
+	strncpy(&send_buffer[2], b_id, 1);
+
+	if(!is_ack){
+		// It's just a normal message, so append message and random chars 
+		send_buffer[3] = '.';				  
+		strncpy(&send_buffer[4], msg, len);
+
+		// Overwrite \0 char from msg with a .
+		send_buffer[4+(len-1)] = '.';		
+
+		// Add random characters at end
+		for(uint8_t i=0; i<3; i++){
+			send_buffer[4+len+i] = alphanumeric[random(0, 62)];
+		}										     
+
+		// Send packet!
+		rf95.send((uint8_t *)send_buffer, 4+len+4);
+	}else{
+		// It's an ACK message, so we just fire back the provided random chars
+		send_buffer[3] = '>';					
+		strncpy(&send_buffer[4], msg, len);
+
+		// Send packet!
+		rf95.send((uint8_t *)send_buffer, 4+len);
+	}	
+
 	rf95.waitPacketSent();
 
-	last_send = millis();
+	// Save timer
+	if(!is_ack){
+		last_send = millis();
+	}
 }
 
 void Commander::ping(){

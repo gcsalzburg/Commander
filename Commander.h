@@ -23,6 +23,8 @@ static const uint8_t buffer_size = 128;
 // Interval between keep-alive messages
 const uint32_t ping_interval = 5000;
 
+const char alphanumeric[] = {"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"};
+
 //
 // Process incoming commands in simple way
 // Format:
@@ -46,8 +48,8 @@ class Commander{
 		bool available();
 
 		// Sends message to network
-		void send(char *msg, uint8_t len);
-		void send(char *msg, uint8_t len, char *b_id);
+		void send(char *msg, uint8_t len, bool is_ack = false);
+		void send(char *msg, uint8_t len, char *b_id, bool is_ack);
 
 		// Checks if we haven't sent a message for a while, and if so will ping
 		// Safe to call as often as possible
