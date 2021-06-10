@@ -158,13 +158,8 @@ void Commander::_send(char *msg, char *board_id, uint8_t len, bool do_retry, boo
 			uint8_t retries = 0;
 
 			while(retries < _max_retries){
-				if(retries == 1){
-					// After the first attempt, let them know we are waiting...
-					_status_change(AWAITING_RESPONSE);
-				}
 				if(rf95.waitAvailableTimeout(_resend_delay)){
 					if(rf95.recv(ack_buff, &ack_len)){
-		
 						// Copy it to the message buffer
 						strcpy(_buffer, (char *)ack_buff);
 
@@ -180,6 +175,16 @@ void Commander::_send(char *msg, char *board_id, uint8_t len, bool do_retry, boo
 							}
 						}		
 					}
+				}else{
+
+					// After the first attempt, let them know we are waiting...
+					if(retries == 1){
+						_status_change(AWAITING_RESPONSE);
+					}
+
+					// Send again!
+					rf95.send((uint8_t *)send_buffer, 4+len+4);
+					rf95.waitPacketSent();
 				}
 				retries++;
 			}
