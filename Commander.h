@@ -23,6 +23,10 @@ static const uint8_t buffer_size = 128;
 // Interval between keep-alive messages
 const uint32_t ping_interval = 5000;
 
+// Resend delay
+const uint8_t resend_delay = 2000;
+const uint8_t max_retries = 3;
+
 const char alphanumeric[] = {"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"};
 
 //
@@ -36,7 +40,20 @@ const char alphanumeric[] = {"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWX
 class Commander{
 
 	public: 
+
+		enum status{
+			OK,
+			ERROR,
+			RECEIVING,
+			SENDING,
+			AWAITING_RESPONSE,
+			NO_RESPONSE,
+			PING_START
+		};
+
 		Commander(char *n_id, char *b_id);
+
+      void setStatusCallback(void (*status_callback)(Commander::status));
 
 		void init(float freq = RF95_FREQ, int8_t power = 23);
 
@@ -48,8 +65,8 @@ class Commander{
 		bool available();
 
 		// Sends message to network
-		void send(char *msg, uint8_t len, bool is_ack = false);
-		void send(char *msg, uint8_t len, char *b_id, bool is_ack);
+		void send(char *msg, uint8_t len, bool request_reply = true);
+		void send(char *msg, char *b_id, uint8_t len, bool request_reply = true);
 
 		// Checks if we haven't sent a message for a while, and if so will ping
 		// Safe to call as often as possible
@@ -68,13 +85,20 @@ class Commander{
 
 		uint32_t last_send = 0;
 
+		void _send(char *msg, uint8_t len, bool do_retry, bool is_ack);
+		void _send(char *msg, char *b_id, uint8_t len,  bool do_retry, bool is_ack);
+
 		void send_boot_msg();
 
 		bool process_input();
 		void cleanup();
 	
 		char buffer[buffer_size+1]; 	
-		uint16_t buffer_i = 0;
+		uint16_t buffer_i = 0;  
+      
+		// Callback to use when send/receive state changes
+		void status_change(Commander::status new_status);
+		void (*_status_callback)(Commander::status);
 };
 
 #endif

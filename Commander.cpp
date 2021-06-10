@@ -11,6 +11,11 @@ Commander::Commander(char *n_id, char *b_id){
 	strcpy(board_id, b_id);
 }
 
+void Commander::setStatusCallback(void (*status_callback)(Commander::status)){
+    _status_callback = status_callback;
+}
+
+
 void Commander::init(float freq, int8_t power){
 	pinMode(RFM95_RST, OUTPUT);
 	digitalWrite(RFM95_RST, HIGH);
@@ -104,9 +109,10 @@ bool Commander::process_input(){
 		cleanup();
 		return false;
 	}
+	status_change(RECEIVING);
 
 	// Send an acknowledgement
-	send(&buffer[msg_length-3], 4, true);
+	_send(&buffer[msg_length-3], 4, false, true);
 
 	// Save message ready for retrieval
 	memset(msg, 0, sizeof msg);	
@@ -114,14 +120,38 @@ bool Commander::process_input(){
 	strncpy(msg, &buffer[4], msg_length);
 	cleanup();
 
+	status_change(OK);
+
 	return true;
 }
 
-void Commander::send(char *msg, uint8_t len, bool is_ack){
-	send(msg, len, board_id, is_ack);
+void Commander::send(char *msg, uint8_t len, bool request_reply){
+	status_change(SENDING);
+	_send(msg, board_id, len, request_reply, false);
 }
 
-void Commander::send(char *msg, uint8_t len, char *b_id, bool is_ack){
+void Commander::send(char *msg, char *b_id, uint8_t len, bool request_reply){
+	status_change(SENDING);
+	_send(msg, b_id, len, request_reply, false);
+}
+
+void Commander::ping(){
+	if(millis() >= last_send+ping_interval){
+		char packet_msg[] = "9";
+		status_change(PING_START);
+		_send(packet_msg, 2, false, false);
+	}
+}
+
+// //////////////////////////////////////
+// //////////////////////////////////////
+// Private functions
+
+void Commander::_send(char *msg, uint8_t len, bool do_retry, bool is_ack){
+	_send(msg, board_id, len, is_ack, do_retry);
+}
+
+void Commander::_send(char *msg, char *b_id, uint8_t len, bool do_retry, bool is_ack){
 
 	char send_buffer[buffer_size+1];
 	memset(send_buffer, 0, sizeof send_buffer);
@@ -159,24 +189,52 @@ void Commander::send(char *msg, uint8_t len, char *b_id, bool is_ack){
 
 	rf95.waitPacketSent();
 
+	// Retry to send if no response
+	// We never retry to send ACK messages
+	if(do_retry && !is_ack){
+		uint8_t buf[buffer_size];
+		uint8_t len = sizeof(buf);
+		uint8_t retries = 0;
+		while(retries < max_retries){
+			if(rf95.waitAvailableTimeout(resend_delay)){
+				if(rf95.recv(buf, &len)){
+					Serial.print("Got reply: ");
+					Serial.println((char*)buf);
+					Serial.print("RSSI: ");
+					Serial.println(rf95.lastRssi(), DEC);   
+					break; 
+				}else{
+					Serial.println("Receive failed");
+				}
+			}else{
+				Serial.println("No reply found");
+			}
+			retries++;
+		}
+		Serial.println("Ending retry loop");
+	}
+
+	// Set state for finished
+	status_change(OK);
+
+
 	// Save timer
 	if(!is_ack){
 		last_send = millis();
 	}
 }
 
-void Commander::ping(){
-	if(millis() >= last_send+ping_interval){
-		char packet_msg[] = "9";
-		send(packet_msg, 2);
+// //////////////////////////////////////
+
+void Commander::status_change(Commander::status new_status){
+	if( _status_callback != NULL ){
+		_status_callback(new_status);
 	}
 }
 
-// //////////////////////////////////////
-
 void Commander::send_boot_msg(){
 	char packet_msg[] = "1";
-	send(packet_msg, 2);
+	_send(packet_msg, 2, false, false);
 }
 
 void Commander::cleanup(){
