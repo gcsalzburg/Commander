@@ -99,7 +99,7 @@ void Commander::ping(){
 // Private functions
 
 void Commander::_send(char *msg, uint8_t len, bool do_retry, bool is_ack){
-	_send(msg, _board_id, len, is_ack, do_retry);
+	_send(msg, _board_id, len, do_retry, is_ack);
 }
 
 void Commander::_send(char *msg, char *board_id, uint8_t len, bool do_retry, bool is_ack){
