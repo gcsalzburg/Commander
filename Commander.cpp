@@ -6,15 +6,16 @@
 
 #include "Commander.h"
 
-Commander::Commander(char *n_id, char *b_id){
-	strcpy(network_id, n_id);
-	strcpy(board_id, b_id);
+// Constructor
+// Requires a network ID and board ID
+Commander::Commander(char *network_id, char *board_id){
+	strcpy(_network_id, network_id);
+	strcpy(_board_id, board_id);
 }
 
 void Commander::setStatusCallback(void (*status_callback)(Commander::status)){
     _status_callback = status_callback;
 }
-
 
 void Commander::init(float freq, int8_t power){
 	pinMode(RFM95_RST, OUTPUT);
@@ -29,6 +30,7 @@ void Commander::init(float freq, int8_t power){
 
 	// Check if init was possible
 	while (!rf95.init()) {
+		_status_change(ERROR);
 		Serial.println("LoRa radio init failed");
 		Serial.println("Uncomment '#define SERIAL_DEBUG' in RH_RF95.cpp for detailed debug info");
 		while (1);
@@ -37,6 +39,7 @@ void Commander::init(float freq, int8_t power){
 
 	// Defaults after init are 434.0MHz, modulation GFSK_Rb250Fd250, +13dbM
 	if (!rf95.setFrequency(freq)) {
+		_status_change(ERROR);
 		Serial.println("setFrequency failed");
 		while (1);
 	}
@@ -50,7 +53,7 @@ void Commander::init(float freq, int8_t power){
 	rf95.setTxPower(power, false);
 
 	// Send a bootup message
-	send_boot_msg();
+	_send_boot_msg();
 }
 
 bool Commander::available(){
@@ -61,8 +64,9 @@ bool Commander::available(){
 		uint8_t len = sizeof(buf);
 
 		if (rf95.recv(buf, &len)){
+			_status_change(READING);
 			// Read in string to commander!
-			if(read(buf, len)){
+			if(_read(buf, len)){
 				return true;
 			}
 		}else{
@@ -72,73 +76,20 @@ bool Commander::available(){
 	return false;
 }
 
-//
-// Reads in a whole buffer length at a time, e.g. from LoRa radio
-// Will return true if we have a new message to read
-bool Commander::read(uint8_t *buff, uint8_t len){
-
-	strcpy(buffer, (char *)buff);
-	return process_input();
-}
-
-//
-// Strip out message into parts for processing
-// See README.md for expected message format
-bool Commander::process_input(){
-
-	msg_length = strlen(buffer);
-
-	if(msg_length < 5){
-		// Message was too short
-		// TODO change this arbitrary length?
-		cleanup();
-		return false;
-	}
-	if((buffer[0] != network_id[0]) || (buffer[1] != network_id[1])){
-		// Network ID is incorrect
-		cleanup();
-		return false;
-	}
-	if(buffer[2] != board_id[0]){
-		// Board ID not for us!
-		cleanup();
-		return false;
-	}
-	if(buffer[3] != '.'){
-		// Separator is not a . (maybe its just an ack message)
-		cleanup();
-		return false;
-	}
-	status_change(RECEIVING);
-
-	// Send an acknowledgement
-	_send(&buffer[msg_length-3], 4, false, true);
-
-	// Save message ready for retrieval
-	memset(msg, 0, sizeof msg);	
-	msg_length = msg_length-8;	// Strip header and footer from message
-	strncpy(msg, &buffer[4], msg_length);
-	cleanup();
-
-	status_change(OK);
-
-	return true;
-}
-
 void Commander::send(char *msg, uint8_t len, bool request_reply){
-	status_change(SENDING);
+	_status_change(SENDING);
+	_send(msg, _board_id, len, request_reply, false);
+}
+
+void Commander::send(char *msg, char *board_id, uint8_t len, bool request_reply){
+	_status_change(SENDING);
 	_send(msg, board_id, len, request_reply, false);
 }
 
-void Commander::send(char *msg, char *b_id, uint8_t len, bool request_reply){
-	status_change(SENDING);
-	_send(msg, b_id, len, request_reply, false);
-}
-
 void Commander::ping(){
-	if(millis() >= last_send+ping_interval){
+	if(millis() >= _last_send+_ping_interval){
 		char packet_msg[] = "9";
-		status_change(PING_START);
+		_status_change(PING_START);
 		_send(packet_msg, 2, false, false);
 	}
 }
@@ -148,22 +99,35 @@ void Commander::ping(){
 // Private functions
 
 void Commander::_send(char *msg, uint8_t len, bool do_retry, bool is_ack){
-	_send(msg, board_id, len, is_ack, do_retry);
+	_send(msg, _board_id, len, is_ack, do_retry);
 }
 
-void Commander::_send(char *msg, char *b_id, uint8_t len, bool do_retry, bool is_ack){
+void Commander::_send(char *msg, char *board_id, uint8_t len, bool do_retry, bool is_ack){
 
-	char send_buffer[buffer_size+1];
+	char send_buffer[BUFFER_SIZE+1];
 	memset(send_buffer, 0, sizeof send_buffer);
 
 	// Assemble packet in expected format
 	// ##x.###########.###
 
 	// Add network ID and device ID
-	strncpy(send_buffer, network_id, 2);
-	strncpy(&send_buffer[2], b_id, 1);
+	strncpy(send_buffer, _network_id, 2);
+	strncpy(&send_buffer[2], board_id, 1);
 
-	if(!is_ack){
+	if(is_ack){
+		// It's an ACK message, so we just fire back the provided random chars
+		send_buffer[3] = '>';					
+		strncpy(&send_buffer[4], msg, len);
+
+		// Send packet!
+		rf95.send((uint8_t *)send_buffer, 4+len);
+		rf95.waitPacketSent();
+		
+		// Set state for finished as not expecting a reply
+		_status_change(OK);
+
+	}else{
+
 		// It's just a normal message, so append message and random chars 
 		send_buffer[3] = '.';				  
 		strncpy(&send_buffer[4], msg, len);
@@ -178,66 +142,154 @@ void Commander::_send(char *msg, char *b_id, uint8_t len, bool do_retry, bool is
 
 		// Send packet!
 		rf95.send((uint8_t *)send_buffer, 4+len+4);
-	}else{
-		// It's an ACK message, so we just fire back the provided random chars
-		send_buffer[3] = '>';					
-		strncpy(&send_buffer[4], msg, len);
+		rf95.waitPacketSent();
 
-		// Send packet!
-		rf95.send((uint8_t *)send_buffer, 4+len);
-	}	
+		// Retry to send if no response
+		// We never retry to send ACK messages
+		
+		bool had_reply = false;
+		if(do_retry){
+			
+			// Buffer to store response in
+			uint8_t ack_buff[RH_RF95_MAX_MESSAGE_LEN];
+			uint8_t ack_len = sizeof(ack_buff);
 
-	rf95.waitPacketSent();
+			// Data about retries
+			uint8_t retries = 0;
 
-	// Retry to send if no response
-	// We never retry to send ACK messages
-	if(do_retry && !is_ack){
-		uint8_t buf[buffer_size];
-		uint8_t len = sizeof(buf);
-		uint8_t retries = 0;
-		while(retries < max_retries){
-			if(rf95.waitAvailableTimeout(resend_delay)){
-				if(rf95.recv(buf, &len)){
-					Serial.print("Got reply: ");
-					Serial.println((char*)buf);
-					Serial.print("RSSI: ");
-					Serial.println(rf95.lastRssi(), DEC);   
-					break; 
-				}else{
-					Serial.println("Receive failed");
+			while(retries < _max_retries){
+				if(retries == 1){
+					// After the first attempt, let them know we are waiting...
+					_status_change(AWAITING_RESPONSE);
 				}
-			}else{
-				Serial.println("No reply found");
+				if(rf95.waitAvailableTimeout(_resend_delay)){
+					if(rf95.recv(ack_buff, &ack_len)){
+		
+						// Copy it to the message buffer
+						strcpy(_buffer, (char *)ack_buff);
+
+						// Check if its correct
+						if(_process_input(true)){
+							if(
+								(send_buffer[4+len]   == msg_rand[0]) &&
+								(send_buffer[4+len+1] == msg_rand[1]) &&
+								(send_buffer[4+len+2] == msg_rand[2])
+							){
+								had_reply = true;
+								break; 
+							}
+						}		
+					}
+				}
+				retries++;
 			}
-			retries++;
 		}
-		Serial.println("Ending retry loop");
+
+		// Set final status
+		if(do_retry && !had_reply){
+			_status_change(NO_RESPONSE);
+		}else{
+			_status_change(OK);
+		}
 	}
-
-	// Set state for finished
-	status_change(OK);
-
 
 	// Save timer
 	if(!is_ack){
-		last_send = millis();
+		_last_send = millis();
 	}
 }
 
-// //////////////////////////////////////
+//
+// Reads in a whole buffer length at a time, e.g. from LoRa radio
+// Will return true if we have a new message to read
+bool Commander::_read(uint8_t *buff, uint8_t len){
 
-void Commander::status_change(Commander::status new_status){
+	strcpy(_buffer, (char *)buff);
+	return _process_input();
+}
+
+//
+// Strip out message into parts for processing
+// See README.md for expected message format
+// We pass in the board_id so we can check for an ACK coming back
+bool Commander::_process_input(bool is_ack_check){
+
+	msg_length = strlen(_buffer);
+
+	if(msg_length < 5){
+		// Message was too short
+		// TODO change this arbitrary length?
+		_cleanup();
+		return false;
+	}
+	if((_buffer[0] != _network_id[0]) || (_buffer[1] != _network_id[1])){
+		// Network ID is incorrect
+		_cleanup();
+		return false;
+	}
+
+	// If we are doing this loop to check the returning ACK, we ignore everything else
+	if(is_ack_check){
+
+		if(!(_buffer[3] == '>')){
+			// Was not an ACK or a normal message
+			_cleanup();
+			return false;
+		}
+
+		// Reset message rand buffer
+		memset(msg_rand, 0, sizeof msg_rand);
+
+		// Save the rand bit
+		strncpy(msg_rand, &_buffer[msg_length-3], 3);	
+
+	}else{
+
+		if(_buffer[2] != _board_id[0]){
+			// Board ID not for us!
+			_cleanup();
+			return false;
+		}
+		if( !(_buffer[3] == '.') ){
+			// Was not an ACK or a normal message
+			_cleanup();
+			return false;
+		}
+
+		_status_change(RECEIVING);
+
+		// Send an acknowledgement
+		_send(&_buffer[msg_length-3], 4, false, true);
+
+		// Reset msg buffers
+		memset(msg, 0, sizeof msg);
+
+		// Save message and random string ready for retrieval
+		strncpy(msg, &_buffer[4], msg_length-8); // -8 = Strip header and footer from message
+
+	}
+
+	// Finish
+	_status_change(OK);
+	_cleanup();
+	return true;
+}
+
+// //////////////////////////////////////
+// Private helper functions
+
+void Commander::_status_change(Commander::status new_status){
 	if( _status_callback != NULL ){
 		_status_callback(new_status);
 	}
 }
 
-void Commander::send_boot_msg(){
+void Commander::_send_boot_msg(){
 	char packet_msg[] = "1";
 	_send(packet_msg, 2, false, false);
 }
 
-void Commander::cleanup(){
-	memset(buffer, 0, sizeof buffer);
-	buffer_i = 0;
+void Commander::_cleanup(){
+	memset(_buffer, 0, sizeof _buffer);
+	_buffer_i = 0; // used if saving to buffer one char at a time (not currently in use in LoRa)
 }
