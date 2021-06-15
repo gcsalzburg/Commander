@@ -269,8 +269,9 @@ bool Commander::_process_input(bool is_ack_check){
 		// Reset msg buffers
 		memset(msg, 0, sizeof msg);
 
-		// Save message and random string ready for retrieval
-		strncpy(msg, &_buffer[4], msg_length-8); // -8 = Strip header and footer from message
+		// Save message ready for retrieval
+		msg_length = msg_length-8;
+		strncpy(msg, &_buffer[4], msg_length); // -8 = Strip header and footer from message
 
 	}
 
