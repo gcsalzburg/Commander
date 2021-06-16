@@ -45,7 +45,7 @@ class Commander{
 			PING_START
 		};
 
-		Commander(char *network_id, char *board_id);
+		Commander(const char *network_id, const char *board_id);
 
       void setStatusCallback(void (*status_callback)(Commander::status));
 

@@ -8,7 +8,7 @@
 
 // Constructor
 // Requires a network ID and board ID
-Commander::Commander(char *network_id, char *board_id){
+Commander::Commander(const char *network_id, const char *board_id){
 	strcpy(_network_id, network_id);
 	strcpy(_board_id, board_id);
 }
