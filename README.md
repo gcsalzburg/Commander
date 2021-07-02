@@ -18,8 +18,8 @@ Each packet consists of:
 ### Example packets
 
 ```javascript
-RRl.0c00FF00.3gd // RUROC network, lighting device, set colour to 00FF00
-RRs.1p.35w // RUROC network, switches device, button 1 pressed
+RRl.0c00FF00.3gd // RR network, lighting device, set colour to 00FF00
+RRs.1p.35w // RR network, switches device, button 1 pressed
 ```
 
 ### Packet acknowledgement
